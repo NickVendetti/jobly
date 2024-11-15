@@ -2,145 +2,139 @@
 
 /** Routes for companies. */
 
-const jsonschema = require("jsonschema");
-const express = require("express");
+const jsonschema = require("jsonschema"); // Library for validating JSON schema
+const express = require("express"); // Express framework for handling HTTP requests
 
-const { BadRequestError } = require("../expressError");
-const { ensureLoggedIn } = require("../middleware/auth");
-const Company = require("../models/company");
+const { BadRequestError } = require("../expressError"); // Custom error class for handling bad requests
+const { ensureAdmin } = require("../middleware/auth"); // Middleware to ensure the user is an admin
+const Company = require("../models/company"); // Company model for interacting with the companies table in the database
 
-const companyNewSchema = require("../schemas/companyNew.json");
-const companyUpdateSchema = require("../schemas/companyUpdate.json");
+const companyNewSchema = require("../schemas/companyNew.json"); // Schema for validating new company creation
+const companyUpdateSchema = require("../schemas/companyUpdate.json"); // Schema for validating company updates
+const companySearchSchema = require("../schemas/companySearch.json"); // Schema for validating company search filters
 
-const router = new express.Router();
+const router = new express.Router(); // Create a new Express router instance
 
 
-/** POST / { company } =>  { company }
- *
- * company should be { handle, name, description, numEmployees, logoUrl }
- *
- * Returns { handle, name, description, numEmployees, logoUrl }
- *
- * Authorization required: login
+/** 
+ * POST / { company } =>  { company }
+ * 
+ * Creates a new company. Requires the following fields:
+ *   - handle, name, description, numEmployees, logoUrl
+ * 
+ * Returns the created company:
+ *   { handle, name, description, numEmployees, logoUrl }
+ * 
+ * Authorization required: admin
  */
-
-router.post("/", ensureLoggedIn, async function (req, res, next) {
+router.post("/", ensureAdmin, async function (req, res, next) {
   try {
     const validator = jsonschema.validate(req.body, companyNewSchema);
     if (!validator.valid) {
       const errs = validator.errors.map(e => e.stack);
-      console.log("validation errors:", errs);
-      throw new BadRequestError(errs);
+      throw new BadRequestError(errs); // Throws a 400 error if validation fails
     }
 
-    const company = await Company.create(req.body);
-    return res.status(201).json({ company });
+    const company = await Company.create(req.body); // Create a new company in the database
+    return res.status(201).json({ company }); // Return the created company
   } catch (err) {
-    console.log("Error creating company:", err);
     return next(err);
   }
 });
 
-/** GET /  =>
+/** 
+ * GET / => 
  *   { companies: [ { handle, name, description, numEmployees, logoUrl }, ...] }
- *
- * Can filter on provided search filters:
- * - minEmployees
- * - maxEmployees
- * - nameLike (will find case-insensitive, partial matches)
- *
+ * 
+ * Retrieves a list of companies. Can accept search filters as query parameters:
+ *   - minEmployees: filter companies with employees >= this value
+ *   - maxEmployees: filter companies with employees <= this value
+ *   - nameLike: partial, case-insensitive match on company names
+ * 
+ * Returns an array of companies matching the criteria.
+ * 
  * Authorization required: none
  */
+router.get("/", async function (req, res, next) {
+  const q = req.query;
+  // Convert query parameters to appropriate types
+  if (q.minEmployees !== undefined) q.minEmployees = +q.minEmployees;
+  if (q.maxEmployees !== undefined) q.maxEmployees = +q.maxEmployees;
 
-  router.get("/", async function (req, res, next) {
-    try {
-      // Parse filters from query string, ensuring minEmployees and maxEmployees are numbers if provided
-      const { name, minEmployees, maxEmployees } = req.query;
-      const filters = {
-        name,
-        minEmployees: minEmployees !== undefined ? Number(minEmployees) : undefined,
-        maxEmployees: maxEmployees !== undefined ? Number(maxEmployees) : undefined,
-      };
-  
-      // Validate that minEmployees and maxEmployees are valid numbers or throw an error
-      if (filters.minEmployees !== undefined && isNaN(filters.minEmployees)) {
-        throw new BadRequestError("minEmployees must be a valid number");
-      }
-      if (filters.maxEmployees !== undefined && isNaN(filters.maxEmployees)) {
-        throw new BadRequestError("maxEmployees must be a valid number");
-      }
-      if (
-        filters.minEmployees !== undefined &&
-        filters.maxEmployees !== undefined &&
-        filters.minEmployees > filters.maxEmployees
-      ) {
-        throw new BadRequestError("minEmployees cannot be greater than maxEmployees");
-      }
-  
-      // Fetch companies using filtered parameters
-      const companies = await Company.findAll(filters);
-      return res.json({ companies });
-    } catch (err) {
-      return next(err);
+  try {
+    const validator = jsonschema.validate(q, companySearchSchema);
+    if (!validator.valid) {
+      const errs = validator.errors.map(e => e.stack);
+      throw new BadRequestError(errs); // Throws a 400 error if validation fails
     }
-  });
 
-/** GET /[handle]  =>  { company }
- *
- *  Company is { handle, name, description, numEmployees, logoUrl, jobs }
- *   where jobs is [{ id, title, salary, equity }, ...]
- *
+    const companies = await Company.findAll(q); // Find companies with the specified filters
+    return res.json({ companies }); // Return the list of companies
+  } catch (err) {
+    return next(err);
+  }
+});
+
+/** 
+ * GET /[handle] => { company }
+ * 
+ * Retrieves detailed information about a specific company. Returns:
+ *   - handle, name, description, numEmployees, logoUrl
+ *   - jobs: array of jobs at the company with { id, title, salary, equity }
+ * 
  * Authorization required: none
  */
-
 router.get("/:handle", async function (req, res, next) {
   try {
-    const company = await Company.get(req.params.handle);
-    return res.json({ company });
+    const company = await Company.get(req.params.handle); // Fetch company details by handle
+    return res.json({ company }); // Return the company details
   } catch (err) {
     return next(err);
   }
 });
 
-/** PATCH /[handle] { fld1, fld2, ... } => { company }
- *
- * Patches company data.
- *
- * fields can be: { name, description, numEmployees, logo_url }
- *
- * Returns { handle, name, description, numEmployees, logo_url }
- *
- * Authorization required: login
+/** 
+ * PATCH /[handle] { fld1, fld2, ... } => { company }
+ * 
+ * Updates details of an existing company. Updatable fields include:
+ *   - name, description, numEmployees, logo_url
+ * 
+ * Returns the updated company:
+ *   { handle, name, description, numEmployees, logo_url }
+ * 
+ * Authorization required: admin
  */
-
-router.patch("/:handle", ensureLoggedIn, async function (req, res, next) {
+router.patch("/:handle", ensureAdmin, async function (req, res, next) {
   try {
     const validator = jsonschema.validate(req.body, companyUpdateSchema);
     if (!validator.valid) {
       const errs = validator.errors.map(e => e.stack);
-      throw new BadRequestError(errs);
+      throw new BadRequestError(errs); // Throws a 400 error if validation fails
     }
 
-    const company = await Company.update(req.params.handle, req.body);
-    return res.json({ company });
+    const company = await Company.update(req.params.handle, req.body); // Update the company in the database
+    return res.json({ company }); // Return the updated company
   } catch (err) {
     return next(err);
   }
 });
 
-/** DELETE /[handle]  =>  { deleted: handle }
- *
- * Authorization: login
+/** 
+ * DELETE /[handle]  =>  { deleted: handle }
+ * 
+ * Deletes a company from the database.
+ * 
+ * Returns the handle of the deleted company.
+ * 
+ * Authorization required: admin
  */
-
-router.delete("/:handle", ensureLoggedIn, async function (req, res, next) {
+router.delete("/:handle", ensureAdmin, async function (req, res, next) {
   try {
-    await Company.remove(req.params.handle);
-    return res.json({ deleted: req.params.handle });
+    await Company.remove(req.params.handle); // Remove the company by handle
+    return res.json({ deleted: req.params.handle }); // Return the deleted company handle
   } catch (err) {
     return next(err);
   }
 });
 
-
-module.exports = router;
+module.exports = router; // Export the router for use in the app
