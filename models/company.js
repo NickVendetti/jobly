@@ -44,22 +44,57 @@ class Company {
     return company;
   }
 
-  /** Find all companies.
-   *
-   * Returns [{ handle, name, description, numEmployees, logoUrl }, ...]
-   * */
+  /** Find all companies with optional filtering.
+ *
+ * Filters can include:
+ * - name: filters to companies with name containing this string (case-insensitive)
+ * - minEmployees: filters to companies with at least this number of employees
+ * - maxEmployees: filters to companies with no more than this number of employees
+ *
+ * Returns [{ handle, name, description, numEmployees, logoUrl }, ...]
+ *
+ * Throws BadRequestError if minEmployees is greater than maxEmployees.
+ */
 
-  static async findAll() {
-    const companiesRes = await db.query(
-          `SELECT handle,
-                  name,
-                  description,
-                  num_employees AS "numEmployees",
-                  logo_url AS "logoUrl"
-           FROM companies
-           ORDER BY name`);
+  static async findAll(filter = {}) {
+    const { name, minEmployees, maxEmployees } = filter;  
+    let query = `SELECT handle,
+                        name,
+                        description,
+                        num_employees AS "numEmployees",
+                        logo_url AS "logoUrl"
+                 FROM companies`;
+    const values = [];
+    const conditions = [];
+
+    // Filtering logic: add conditions based on provided filters
+    if (minEmployees !== undefined) {
+        if (maxEmployees !== undefined && minEmployees > maxEmployees) {
+            throw new BadRequestError("minEmployees cannot be greater than maxEmployees");
+        }
+        conditions.push(`num_employees >= $${values.length + 1}`);
+        values.push(minEmployees);
+    }
+
+    if (maxEmployees !== undefined) {
+        conditions.push(`num_employees <= $${values.length + 1}`);
+        values.push(maxEmployees);
+    }
+
+    if (name) {
+        conditions.push(`name ILIKE $${values.length + 1}`);
+        values.push(`%${name}%`);
+    }
+
+    // Only add WHERE clause if there are filtering conditions
+    if (conditions.length > 0) {
+        query += " WHERE " + conditions.join(" AND ");
+    }
+
+    query += " ORDER BY name";
+    const companiesRes = await db.query(query, values);
     return companiesRes.rows;
-  }
+}
 
   /** Given a company handle, return data about company.
    *

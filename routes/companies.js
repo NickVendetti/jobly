@@ -29,12 +29,14 @@ router.post("/", ensureLoggedIn, async function (req, res, next) {
     const validator = jsonschema.validate(req.body, companyNewSchema);
     if (!validator.valid) {
       const errs = validator.errors.map(e => e.stack);
+      console.log("validation errors:", errs);
       throw new BadRequestError(errs);
     }
 
     const company = await Company.create(req.body);
     return res.status(201).json({ company });
   } catch (err) {
+    console.log("Error creating company:", err);
     return next(err);
   }
 });
@@ -50,14 +52,38 @@ router.post("/", ensureLoggedIn, async function (req, res, next) {
  * Authorization required: none
  */
 
-router.get("/", async function (req, res, next) {
-  try {
-    const companies = await Company.findAll();
-    return res.json({ companies });
-  } catch (err) {
-    return next(err);
-  }
-});
+  router.get("/", async function (req, res, next) {
+    try {
+      // Parse filters from query string, ensuring minEmployees and maxEmployees are numbers if provided
+      const { name, minEmployees, maxEmployees } = req.query;
+      const filters = {
+        name,
+        minEmployees: minEmployees !== undefined ? Number(minEmployees) : undefined,
+        maxEmployees: maxEmployees !== undefined ? Number(maxEmployees) : undefined,
+      };
+  
+      // Validate that minEmployees and maxEmployees are valid numbers or throw an error
+      if (filters.minEmployees !== undefined && isNaN(filters.minEmployees)) {
+        throw new BadRequestError("minEmployees must be a valid number");
+      }
+      if (filters.maxEmployees !== undefined && isNaN(filters.maxEmployees)) {
+        throw new BadRequestError("maxEmployees must be a valid number");
+      }
+      if (
+        filters.minEmployees !== undefined &&
+        filters.maxEmployees !== undefined &&
+        filters.minEmployees > filters.maxEmployees
+      ) {
+        throw new BadRequestError("minEmployees cannot be greater than maxEmployees");
+      }
+  
+      // Fetch companies using filtered parameters
+      const companies = await Company.findAll(filters);
+      return res.json({ companies });
+    } catch (err) {
+      return next(err);
+    }
+  });
 
 /** GET /[handle]  =>  { company }
  *

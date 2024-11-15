@@ -25,6 +25,10 @@ app.use("/auth", authRoutes);
 app.use("/companies", companiesRoutes);
 app.use("/users", usersRoutes);
 
+// Added a route to handle the root URL
+app.get("/", (req, res, next) => {
+  res.send("Welcome to the Jobly API!");
+});
 
 /** Handle 404 errors -- this matches everything */
 app.use(function (req, res, next) {
